@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Perchance Image Meta-Saver",
+  "version": "1.6",
+  "description": "Saves Perchance images with prompts and seeds embedded in EXIF and XMP metadata.",
+  "permissions": [
+    "contextMenus",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.perchance.org/*",
+    "https://*.perchance.io/*"
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.perchance.org/*",
+        "https://*.perchance.io/*"
+      ],
+      "js": ["piexif.js", "content_script.js"],
+      "all_frames": true
+    }
+  ]
+}
