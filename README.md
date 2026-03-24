@@ -1,4 +1,4 @@
-# Perchance Metadata Saver (v1.6)
+# Perchance Image Metadata Saver (v1.6)
 
 A browser extension for Perchance AI users to save images with full prompt and seed metadata embedded directly into the file.
 
