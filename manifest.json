@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Perchance EXIF Saver",
+  "version": "1.3",
+  "permissions": ["contextMenus", "downloads", "scripting"],
+  "host_permissions": [
+    "*://*.perchance.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "classic"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.perchance.org/*"],
+      "js": ["piexif.js", "content_script.js"]
+    }
+  ]
+}
