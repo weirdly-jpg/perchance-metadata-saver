@@ -1,9 +1,10 @@
 /**
- * Perchance Image Meta-Saver (v1.6)
- * Fixes: 
+ * Perchance Image Meta-Saver (v1.7)
+ * Fixes:
  * - "Maximum call stack size exceeded" on large images (Chunked Processing).
  * - Transparent overlays blocking image detection (Deep Drill Logic).
  * - Global URL matching if coordinate drilling fails.
+ * - Filenames are now seed_checksum (CRC32 of the final file bytes).
  */
 
 let lastX = 0;
@@ -32,6 +33,33 @@ function showToast(message, color = "#2ecc71") {
         toast.style.opacity = "0";
         setTimeout(() => toast.remove(), 500);
     }, 3000);
+}
+
+/**
+ * CRC32 (IEEE) of raw bytes -> 8 lowercase hex chars.
+ * Used for the <checksum> half of the seed_checksum filename.
+ */
+const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c >>> 0;
+    }
+    return t;
+})();
+
+function crc32hex(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return ((c ^ 0xFFFFFFFF) >>> 0).toString(16).padStart(8, '0');
+}
+
+function dataUrlToBytes(dataUrl) {
+    const binaryString = atob(dataUrl.split(',')[1]);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
 }
 
 /**
@@ -133,7 +161,7 @@ async function processTarget(img, url) {
     const splitMatch = fullMetadata.match(/^(.*?)(?=\s*seed[=:\s])/i);
     const promptOnly = splitMatch ? splitMatch[1].trim() : (fullMetadata || "perchance_image");
     const seedMatch = fullMetadata.match(/seed[=:\s](\d+)/i);
-    const fileName = seedMatch ? `${seedMatch[1]}.jpg` : `perchance_${Date.now()}.jpg`;
+    const seedPart = seedMatch ? seedMatch[1] : `perchance_${Date.now()}`;
 
     try {
         const response = await fetch(url, { mode: 'cors' }).catch(() => fetch(url));
@@ -162,6 +190,10 @@ async function processTarget(img, url) {
                 // XMP Injection
                 const finalJpeg = injectXMP(jpegData, promptOnly);
 
+                // Filename = seed_checksum, where checksum = CRC32 of the
+                // FINAL file bytes (after EXIF/XMP embedding), 8 lowercase hex.
+                const fileName = `${seedPart}_${crc32hex(dataUrlToBytes(finalJpeg))}.jpg`;
+
                 // Trigger Download
                 const link = document.createElement('a');
                 link.href = finalJpeg;
@@ -170,7 +202,7 @@ async function processTarget(img, url) {
                 link.click();
                 document.body.removeChild(link);
 
-                showToast(`✅ Saved: ${seedMatch ? seedMatch[1] : 'Success'}`);
+                showToast(`✅ Saved: ${fileName}`);
             };
             tempImg.src = reader.result;
         };
