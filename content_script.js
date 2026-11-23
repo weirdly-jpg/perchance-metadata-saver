@@ -157,7 +157,26 @@ chrome.runtime.onMessage.addListener(async (msg) => {
  * Fetches, injects metadata, and triggers download
  */
 async function processTarget(img, url) {
-    const fullMetadata = img.title || img.getAttribute("data-title") || img.alt || "";
+    let fullMetadata = img.title || img.getAttribute("data-title") || img.alt || "";
+    // __TPS_TILE_META_BEGIN
+    // Titled (flattened overlay) frames carry no metadata on the <img>
+    // itself (alt is empty), so recover prompt/seed from the tile's
+    // finished output in the same container. Live frames are unaffected:
+    // their <img> already carries metadata and this block is skipped.
+    try {
+        if (!fullMetadata) {
+            const ctn = img.closest ? img.closest('.t2i-image-ctn') : null;
+            const fr = ctn ? ctn.querySelector('iframe') : null;
+            const out = fr && fr.textToImagePluginOutput;
+            const inp = out && out.inputs;
+            if (inp && (inp.prompt || inp.seed != null || inp.Seed != null)) {
+                const p = String(inp.prompt || "");
+                const s = String(inp.seed != null ? inp.seed : (inp.Seed || ""));
+                fullMetadata = s ? (p + " seed:" + s) : p;
+            }
+        }
+    } catch (tileMetaErr) {}
+    // __TPS_TILE_META_END
     const splitMatch = fullMetadata.match(/^(.*?)(?=\s*seed[=:\s])/i);
     const promptOnly = splitMatch ? splitMatch[1].trim() : (fullMetadata || "perchance_image");
     const seedMatch = fullMetadata.match(/seed[=:\s](\d+)/i);
