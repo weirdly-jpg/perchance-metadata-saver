@@ -1,4 +1,4 @@
-# Perchance Image Metadata Saver (v1.7)
+# Perchance Image Metadata Saver (v1.8)
 
 A browser extension for Perchance AI users to save images with full prompt and seed metadata embedded directly into the file.
 
@@ -7,6 +7,7 @@ A browser extension for Perchance AI users to save images with full prompt and s
 * **XMP Support:** Injects searchable keywords and descriptions (Perfect for Adobe Bridge, XnViewMP, and macOS Finder).
 * **Automatic Naming:** Files are named by seed and checksum (e.g., \12345_9ef3697f.jpg`), where the checksum is CRC32 of the final file bytes.
 * **Overlay Bypass:** Works even on generators with transparent overlays.
+* **Titled frames:** overlay-titled/flattened images carry no metadata on the <img> itself, so prompt/seed are recovered from the tile — titled saves now name correctly too.
 
 ### 🛠 Installation (Developer Mode)
 Since this is not on the Chrome Web Store yet, users can install it manually:
