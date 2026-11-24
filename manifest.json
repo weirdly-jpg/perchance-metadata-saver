@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Perchance Image Meta-Saver",
-  "version": "1.8",
+  "version": "2.0",
   "description": "Saves Perchance images with prompts and seeds embedded in EXIF and XMP metadata.",
   "permissions": [
     "contextMenus",
@@ -27,6 +27,15 @@
       ],
       "js": ["piexif.js", "content_script.js"],
       "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": [
+        "https://*.perchance.org/*",
+        "https://*.perchance.io/*"
+      ]
     }
   ]
 }

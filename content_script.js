@@ -1,14 +1,61 @@
 /**
- * Perchance Image Meta-Saver (v1.7)
+ * Perchance Image Meta-Saver (v2.0)
  * Fixes:
  * - "Maximum call stack size exceeded" on large images (Chunked Processing).
  * - Transparent overlays blocking image detection (Deep Drill Logic).
  * - Global URL matching if coordinate drilling fails.
  * - Filenames are now seed_checksum (CRC32 of the final file bytes).
+ * - Titled frames: prompt/seed recovered from the tile via a MAIN-world
+ *   page hook (injected.js), since isolated content scripts cannot read
+ *   the tile's JS output object; history-lightbox seed via info panel.
  */
 
 let lastX = 0;
 let lastY = 0;
+
+// Bump with each release; printed to the tab console so you can confirm
+// which version is actually running in the page.
+const PMS_VERSION = '2.0';
+try { console.info('[Perchance Meta-Saver] content script v' + PMS_VERSION + ' loaded'); } catch (loadLogErr) {}
+
+// ---- Page-hook bridge (tile outputs live in the page's MAIN world and are
+// invisible to this isolated world, so a tiny injected script reads them) ----
+let pmsSeq = 0;
+const pmsPending = new Map();
+
+function ensureHook() {
+    try {
+        if (document.getElementById('pms-hook')) return;
+        const s = document.createElement('script');
+        s.id = 'pms-hook';
+        s.src = chrome.runtime.getURL('injected.js');
+        (document.head || document.documentElement).appendChild(s);
+    } catch (hookErr) {}
+}
+try { ensureHook(); } catch (e) {}
+
+window.addEventListener('message', (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (!d || d.source !== 'pms-hook' || d.cmd !== 'tileMeta-result') return;
+    if (d.v !== 1) return; // stale hook copy from a future update: ignore
+    const cb = pmsPending.get(d.id);
+    if (cb) { pmsPending.delete(d.id); try { cb(d.result); } catch (e2) {} }
+});
+
+// Ask the page hook for the tile behind a click. Resolves null when the
+// hook is unreachable or no tile matches (timeouts are normal off-tile).
+function queryTileMeta(src, x, y) {
+    try { ensureHook(); } catch (e) {}
+    return new Promise((resolve) => {
+        const id = ++pmsSeq;
+        pmsPending.set(id, resolve);
+        window.postMessage({ source: 'pms-hook', cmd: 'tileMeta', id: id, src: src, x: x, y: y }, '*');
+        setTimeout(() => {
+            if (pmsPending.has(id)) { pmsPending.delete(id); resolve(null); }
+        }, 1500);
+    });
+}
 
 // Track mouse coordinates for pinpoint image detection
 document.addEventListener("contextmenu", (event) => {
@@ -158,25 +205,59 @@ chrome.runtime.onMessage.addListener(async (msg) => {
  */
 async function processTarget(img, url) {
     let fullMetadata = img.title || img.getAttribute("data-title") || img.alt || "";
+    let metaSource = fullMetadata ? 'img-attrs' : 'none';
     // __TPS_TILE_META_BEGIN
     // Titled (flattened overlay) frames carry no metadata on the <img>
-    // itself (alt is empty), so recover prompt/seed from the tile's
-    // finished output in the same container. Live frames are unaffected:
-    // their <img> already carries metadata and this block is skipped.
+    // itself (alt is empty). The finished output lives on the tile iframe
+    // as a JS property, which this isolated world cannot read directly,
+    // so ask the MAIN-world page hook (injected.js) for it. Live frames
+    // are unaffected: their <img> already carries metadata, so this is skipped.
     try {
         if (!fullMetadata) {
-            const ctn = img.closest ? img.closest('.t2i-image-ctn') : null;
-            const fr = ctn ? ctn.querySelector('iframe') : null;
-            const out = fr && fr.textToImagePluginOutput;
-            const inp = out && out.inputs;
-            if (inp && (inp.prompt || inp.seed != null || inp.Seed != null)) {
-                const p = String(inp.prompt || "");
-                const s = String(inp.seed != null ? inp.seed : (inp.Seed || ""));
-                fullMetadata = s ? (p + " seed:" + s) : p;
+            const tm = await queryTileMeta(url, lastX, lastY);
+            if (tm && (tm.prompt || tm.seed)) {
+                fullMetadata = tm.seed ? ((tm.prompt || "") + " seed:" + tm.seed) : (tm.prompt || "");
+                metaSource = 'tile-hook';
             }
         }
     } catch (tileMetaErr) {}
+    // History lightbox: its frame output carries prompt only (no seed),
+    // so fill a missing seed from the lightbox info panel text.
+    try {
+        if (!/seed[=:\s]\d+/i.test(fullMetadata)) {
+            const lbImg = document.getElementById('history-lightbox-img');
+            if (lbImg && (img === lbImg || (img.src && img.src === lbImg.src))) {
+                const infoEl = document.getElementById('history-lightbox-info');
+                const t = infoEl ? (infoEl.textContent || '') : '';
+                const lsm = t.match(/Seed:\s*(\d+)/i);
+                if (lsm) {
+                    fullMetadata = (fullMetadata ? fullMetadata : 'perchance_image') + ' seed:' + lsm[1];
+                    metaSource = metaSource === 'none' ? 'lightbox-info' : (metaSource + '+lightbox-info');
+                }
+            }
+        }
+    } catch (lightboxErr) {}
+    // Fallback for layouts that store metadata on ancestor elements.
+    try {
+        if (!fullMetadata) {
+            let el = img.parentElement;
+            while (el && el !== document.body && el !== document.documentElement) {
+                const t = el.getAttribute ? (el.getAttribute('data-prompt') || el.getAttribute('data-title') || el.title) : '';
+                const sd = el.getAttribute ? el.getAttribute('data-seed') : '';
+                if (t || sd) {
+                    fullMetadata = sd ? ((t || '') + ' seed:' + sd) : (t || '');
+                    metaSource = 'ancestor-attrs';
+                    break;
+                }
+                el = el.parentElement;
+            }
+        }
+    } catch (ancestorErr) {}
     // __TPS_TILE_META_END
+    try {
+        const diagSeed = (fullMetadata.match(/seed[=:\s](\d+)/i) || [])[1] || 'none';
+        console.info('[Perchance Meta-Saver v' + PMS_VERSION + '] metadata source: ' + metaSource + ', seed: ' + diagSeed);
+    } catch (logErr) {}
     const splitMatch = fullMetadata.match(/^(.*?)(?=\s*seed[=:\s])/i);
     const promptOnly = splitMatch ? splitMatch[1].trim() : (fullMetadata || "perchance_image");
     const seedMatch = fullMetadata.match(/seed[=:\s](\d+)/i);
@@ -221,7 +302,13 @@ async function processTarget(img, url) {
                 link.click();
                 document.body.removeChild(link);
 
-                showToast(`✅ Saved: ${fileName}`);
+                if (seedMatch) {
+                    showToast(`✅ Saved: ${fileName}`);
+                } else {
+                    // No seed found anywhere (no tile output, no ancestor
+                    // metadata): saved anyway, but the name can't carry one.
+                    showToast(`⚠️ Saved without seed: ${fileName}`, "#e67e22");
+                }
             };
             tempImg.src = reader.result;
         };
